@@ -17,6 +17,9 @@ const noResults = document.getElementById('noResults');
 const errorMessage = document.getElementById('errorMessage');
 const errorText = document.getElementById('errorText');
 
+// Pagination display settings
+const MAX_VISIBLE_PAGES = 10; // Number of page buttons to show (excluding arrows)
+
 // Initialize the page
 document.addEventListener('DOMContentLoaded', function() {
     fetchAllPosts().then(() => {
@@ -38,9 +41,9 @@ async function fetchAllPosts() {
         // Fetch all posts (API /posts returns max 30 per request, so we'll modify the limit to total posts instead)
         // For more posts, you'd need to implement pagination through API
         const response = await fetch('https://dummyjson.com/posts?limit='+totalPosts);
-        const postsData = await response.json();
+        const allData = await response.json();
 
-        allPosts = postsData.posts;
+        allPosts = allData.posts;
         filteredPosts = [...allPosts];
 
         displayPosts();
@@ -138,7 +141,7 @@ function displayPosts() {
             : post.body;
 
         postsHTML += `
-            <div class="col-md-6 mb-4">
+            <div class="col-md-4 mb-4">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body">
                         <h5 class="card-title">${post.title.substring(0, 50)}${post.title.length > 50 ? '...' : ''}</h5>
@@ -169,10 +172,14 @@ function displayPosts() {
         `;
     });
 
+    // modify content template of posts list
     postsContainer.innerHTML = postsHTML;
 
     // Generate pagination
     generatePagination(totalPages);
+
+    // to update page info
+    updatePageInfo()
 }
 
 // Generate pagination controls
@@ -187,14 +194,39 @@ function generatePagination(totalPages) {
     // Previous button
     paginationHTML += `
         <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changePage(${currentPage - 1}); return false;">
+            <a class="page-link" href="#" onclick="changePage(${currentPage - 1}); return false;" aria-label="Previous">
                 <i class="fas fa-chevron-left"></i>
             </a>
         </li>
     `;
 
+    // Calculate page range to display
+    let startPage = Math.max(1, currentPage - Math.floor(MAX_VISIBLE_PAGES / 2));
+    let endPage = Math.min(totalPages, startPage + MAX_VISIBLE_PAGES - 1);
+
+    // Adjust if we're near the end
+    if (endPage - startPage + 1 < MAX_VISIBLE_PAGES) {
+        startPage = Math.max(1, endPage - MAX_VISIBLE_PAGES + 1);
+    }
+
+    // First page with ellipsis if needed
+    if (startPage > 1) {
+        paginationHTML += `
+            <li class="page-item">
+                <a class="page-link" href="#" onclick="changePage(1); return false;">1</a>
+            </li>
+        `;
+        if (startPage > 2) {
+            paginationHTML += `
+                <li class="page-item disabled">
+                    <span class="page-link">...</span>
+                </li>
+            `;
+        }
+    }
+
     // Page numbers
-    for (let i = 1; i <= totalPages; i++) {
+    for (let i = startPage; i <= endPage; i++) {
         paginationHTML += `
             <li class="page-item ${currentPage === i ? 'active' : ''}">
                 <a class="page-link" href="#" onclick="changePage(${i}); return false;">${i}</a>
@@ -202,20 +234,42 @@ function generatePagination(totalPages) {
         `;
     }
 
+    // Last page with ellipsis if needed
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            paginationHTML += `
+                <li class="page-item disabled">
+                    <span class="page-link">...</span>
+                </li>
+            `;
+        }
+        paginationHTML += `
+            <li class="page-item">
+                <a class="page-link" href="#" onclick="changePage(${totalPages}); return false;">${totalPages}</a>
+            </li>
+        `;
+    }
+
     // Next button
     paginationHTML += `
         <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changePage(${currentPage + 1}); return false;">
+            <a class="page-link" href="#" onclick="changePage(${currentPage + 1}); return false;" aria-label="Next">
                 <i class="fas fa-chevron-right"></i>
             </a>
         </li>
     `;
 
-    paginationElement.innerHTML = paginationHTML;
+    paginationEl.innerHTML = paginationHTML;
 }
 
 // Change page function
 window.changePage = function(page) {
+    const totalPages = Math.ceil(filteredPosts.length / POSTS_PER_PAGE);
+
+    // Validate page number
+    if (page < 1) page = 1;
+    if (page > totalPages) page = totalPages;
+
     currentPage = page;
     displayPosts();
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -229,6 +283,29 @@ function saveSearchState() {
         timestamp: new Date().getTime() // For cache busting if needed
     };
     sessionStorage.setItem('blogSearchState', JSON.stringify(searchState));
+}
+
+// Update page info
+function updatePageInfo() {
+    const totalFilteredPosts = filteredPosts.length;
+    const totalPages = Math.ceil(totalFilteredPosts / POSTS_PER_PAGE);
+    const startItem = totalFilteredPosts > 0 ? ((currentPage - 1) * POSTS_PER_PAGE) + 1 : 0;
+    const endItem = Math.min(currentPage * POSTS_PER_PAGE, totalFilteredPosts);
+
+    const pageInfo = document.getElementById('pageInfo');
+    const totalPostsEl = document.getElementById('totalPosts');
+
+    if (pageInfo) {
+        if (totalFilteredPosts > 0) {
+            pageInfo.innerHTML = `<i class="fas fa-list me-2"></i>Showing ${startItem}-${endItem} of ${totalFilteredPosts} posts`;
+        } else {
+            pageInfo.innerHTML = `<i class="fas fa-list me-2"></i>No posts found`;
+        }
+    }
+
+    if (totalPostsEl) {
+        totalPostsEl.innerHTML = `<i class="fas fa-book me-2"></i>Page ${currentPage} of ${totalPages}`;
+    }
 }
 
 // Restore search state when returning to page

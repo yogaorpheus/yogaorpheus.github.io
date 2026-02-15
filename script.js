@@ -180,7 +180,7 @@ function generateSmartPagination(totalPages) {
     }
 
     let paginationHTML = '';
-    
+
     // Previous button
     paginationHTML += `
         <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">

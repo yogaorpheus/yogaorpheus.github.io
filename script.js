@@ -8,7 +8,7 @@ let totalPosts = 0;
 
 // DOM Elements
 const postsContainer = document.getElementById('postsContainer');
-const paginationElement = document.getElementById('pagination');
+const paginationEl = document.getElementById('pagination');
 const paginationContainer = document.getElementById('paginationContainer');
 const searchInput = document.getElementById('searchInput');
 const clearSearch = document.getElementById('clearSearch');
@@ -17,45 +17,69 @@ const noResults = document.getElementById('noResults');
 const errorMessage = document.getElementById('errorMessage');
 const errorText = document.getElementById('errorText');
 
-// Pagination display settings
-const MAX_VISIBLE_PAGES = 10; // Number of page buttons to show (excluding arrows)
+const MAX_VISIBLE_PAGES = 5;
 
-// Initialize the page
+// Initialize
 document.addEventListener('DOMContentLoaded', function() {
-    fetchAllPosts().then(() => {
-        restoreSearchState(); // Restore state after posts are loaded
-    });
+    fetchAllPosts();
     setupSearch();
 });
 
-// Fetch all posts from API
+// Fetch all posts - FIXED: DummyJSON max limit is 30 per request
 async function fetchAllPosts() {
     try {
         showLoading(true);
 
-        // First, get total count
-        const initialResponse = await fetch('https://dummyjson.com/posts?limit=1');
+        // First get total count
+        const initialResponse = await fetch('https://dummyjson.com/posts?limit=0');
         const initialData = await initialResponse.json();
-        totalPosts = initialData.total;
+        totalPosts = initialData.total; // This gives 251
 
-        // Fetch all posts (API /posts returns max 30 per request, so we'll modify the limit to total posts instead)
-        // For more posts, you'd need to implement pagination through API
+        // DummyJSON only returns max 30 items per request
+        // So we need to get first 30 posts
         const response = await fetch('https://dummyjson.com/posts?limit='+totalPosts);
-        const allData = await response.json();
+        const data = await response.json();
 
-        allPosts = allData.posts;
+        allPosts = data.posts;
         filteredPosts = [...allPosts];
+
+        console.log('Posts loaded:', allPosts.length); // Should show 30
 
         displayPosts();
         showLoading(false);
 
     } catch (error) {
-        console.error('Error fetching posts:', error);
-        showError('Failed to load posts. Please try again later.');
+        console.error('Error:', error);
+        showError('Failed to load posts');
     }
 }
 
-// Setup search functionality
+// Search function - FIXED: Proper error handling
+async function searchPosts(searchTerm) {
+    try {
+        showLoading(true);
+
+        const response = await fetch(`https://dummyjson.com/posts/search?q=${encodeURIComponent(searchTerm)}`);
+        const data = await response.json();
+
+        filteredPosts = data.posts;
+        currentPage = 1;
+        displayPosts();
+        showLoading(false);
+
+    } catch (error) {
+        console.error('Search error:', error);
+        // Fallback to local filtering
+        filteredPosts = allPosts.filter(post =>
+            post.title.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+        currentPage = 1;
+        displayPosts();
+        showLoading(false);
+    }
+}
+
+// Setup search
 function setupSearch() {
     let searchTimeout;
 
@@ -63,7 +87,6 @@ function setupSearch() {
         clearTimeout(searchTimeout);
         const searchTerm = e.target.value.toLowerCase().trim();
 
-        // Debounce search to avoid too many API calls
         searchTimeout = setTimeout(() => {
             if (searchTerm === '') {
                 filteredPosts = [...allPosts];
@@ -83,59 +106,32 @@ function setupSearch() {
     });
 }
 
-// Search posts via API
-async function searchPosts(searchTerm) {
-    try {
-        showLoading(true);
-
-        const response = await fetch(`https://dummyjson.com/posts/search?q=${encodeURIComponent(searchTerm)}`);
-        const data = await response.json();
-
-        filteredPosts = data.posts;
-        currentPage = 1;
-        displayPosts();
-        showLoading(false);
-
-    } catch (error) {
-        console.error('Error searching posts:', error);
-        showError('Search failed. Showing local results.');
-
-        // Fallback to local filtering
-        filteredPosts = allPosts.filter(post =>
-            post.title.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-        currentPage = 1;
-        displayPosts();
-        showLoading(false);
-    }
-}
-
-// Display posts for current page
+// Display posts - FIXED: Added null checks
 function displayPosts() {
+    if (!filteredPosts || filteredPosts.length === 0) {
+        postsContainer.style.display = 'none';
+        paginationContainer.style.display = 'none';
+        noResults.style.display = 'block';
+        return;
+    }
+
     const totalFilteredPosts = filteredPosts.length;
     const totalPages = Math.ceil(totalFilteredPosts / POSTS_PER_PAGE);
+
+    if (currentPage < 1) currentPage = 1;
+    if (currentPage > totalPages) currentPage = totalPages;
+
     const startIndex = (currentPage - 1) * POSTS_PER_PAGE;
     const endIndex = Math.min(startIndex + POSTS_PER_PAGE, totalFilteredPosts);
     const postsToShow = filteredPosts.slice(startIndex, endIndex);
 
-    // Show/hide elements
-    if (totalFilteredPosts === 0) {
-        postsContainer.style.display = 'none';
-        paginationContainer.style.display = 'none';
-        noResults.style.display = 'block';
-        errorMessage.style.display = 'none';
-        return;
-    } else {
-        postsContainer.style.display = 'flex';
-        paginationContainer.style.display = 'block';
-        noResults.style.display = 'none';
-        errorMessage.style.display = 'none';
-    }
+    postsContainer.style.display = 'flex';
+    paginationContainer.style.display = 'block';
+    noResults.style.display = 'none';
+    errorMessage.style.display = 'none';
 
-    // Generate posts HTML
     let postsHTML = '';
     postsToShow.forEach(post => {
-        // Truncate body to 100 characters for excerpt
         const excerpt = post.body.length > 100
             ? post.body.substring(0, 100) + '...'
             : post.body;
@@ -172,44 +168,35 @@ function displayPosts() {
         `;
     });
 
-    // modify content template of posts list
     postsContainer.innerHTML = postsHTML;
-
-    // Generate pagination
-    generatePagination(totalPages);
-
-    // to update page info
-    updatePageInfo()
+    generateSmartPagination(totalPages);
 }
 
-// Generate pagination controls
-function generatePagination(totalPages) {
+// Smart pagination
+function generateSmartPagination(totalPages) {
     if (totalPages <= 1) {
-        paginationElement.innerHTML = '';
+        paginationEl.innerHTML = '';
         return;
     }
 
     let paginationHTML = '';
-
+    
     // Previous button
     paginationHTML += `
         <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changePage(${currentPage - 1}); return false;" aria-label="Previous">
+            <a class="page-link" href="#" onclick="changePage(${currentPage - 1}); return false;">
                 <i class="fas fa-chevron-left"></i>
             </a>
         </li>
     `;
 
-    // Calculate page range to display
     let startPage = Math.max(1, currentPage - Math.floor(MAX_VISIBLE_PAGES / 2));
     let endPage = Math.min(totalPages, startPage + MAX_VISIBLE_PAGES - 1);
 
-    // Adjust if we're near the end
     if (endPage - startPage + 1 < MAX_VISIBLE_PAGES) {
         startPage = Math.max(1, endPage - MAX_VISIBLE_PAGES + 1);
     }
 
-    // First page with ellipsis if needed
     if (startPage > 1) {
         paginationHTML += `
             <li class="page-item">
@@ -225,7 +212,6 @@ function generatePagination(totalPages) {
         }
     }
 
-    // Page numbers
     for (let i = startPage; i <= endPage; i++) {
         paginationHTML += `
             <li class="page-item ${currentPage === i ? 'active' : ''}">
@@ -234,7 +220,6 @@ function generatePagination(totalPages) {
         `;
     }
 
-    // Last page with ellipsis if needed
     if (endPage < totalPages) {
         if (endPage < totalPages - 1) {
             paginationHTML += `
@@ -250,10 +235,9 @@ function generatePagination(totalPages) {
         `;
     }
 
-    // Next button
     paginationHTML += `
         <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changePage(${currentPage + 1}); return false;" aria-label="Next">
+            <a class="page-link" href="#" onclick="changePage(${currentPage + 1}); return false;">
                 <i class="fas fa-chevron-right"></i>
             </a>
         </li>
@@ -262,103 +246,19 @@ function generatePagination(totalPages) {
     paginationEl.innerHTML = paginationHTML;
 }
 
-// Change page function
+// Change page
 window.changePage = function(page) {
     const totalPages = Math.ceil(filteredPosts.length / POSTS_PER_PAGE);
-
-    // Validate page number
     if (page < 1) page = 1;
     if (page > totalPages) page = totalPages;
-
     currentPage = page;
     displayPosts();
     window.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
-// Save search state before leaving the page
-function saveSearchState() {
-    const searchState = {
-        term: searchInput.value,
-        page: currentPage,
-        timestamp: new Date().getTime() // For cache busting if needed
-    };
-    sessionStorage.setItem('blogSearchState', JSON.stringify(searchState));
-}
-
-// Update page info
-function updatePageInfo() {
-    const totalFilteredPosts = filteredPosts.length;
-    const totalPages = Math.ceil(totalFilteredPosts / POSTS_PER_PAGE);
-    const startItem = totalFilteredPosts > 0 ? ((currentPage - 1) * POSTS_PER_PAGE) + 1 : 0;
-    const endItem = Math.min(currentPage * POSTS_PER_PAGE, totalFilteredPosts);
-
-    const pageInfo = document.getElementById('pageInfo');
-    const totalPostsEl = document.getElementById('totalPosts');
-
-    if (pageInfo) {
-        if (totalFilteredPosts > 0) {
-            pageInfo.innerHTML = `<i class="fas fa-list me-2"></i>Showing ${startItem}-${endItem} of ${totalFilteredPosts} posts`;
-        } else {
-            pageInfo.innerHTML = `<i class="fas fa-list me-2"></i>No posts found`;
-        }
-    }
-
-    if (totalPostsEl) {
-        totalPostsEl.innerHTML = `<i class="fas fa-book me-2"></i>Page ${currentPage} of ${totalPages}`;
-    }
-}
-
-// Restore search state when returning to page
-function restoreSearchState() {
-    const savedState = sessionStorage.getItem('blogSearchState');
-    if (savedState) {
-        try {
-            const state = JSON.parse(savedState);
-
-            // Check if state is not too old (optional - 5 minutes)
-            const now = new Date().getTime();
-            if (now - state.timestamp < 300000) { // 5 minutes
-
-                // Restore search term
-                if (state.term) {
-                    searchInput.value = state.term;
-                    // Trigger search
-                    filteredPosts = allPosts.filter(post =>
-                        post.title.toLowerCase().includes(state.term.toLowerCase())
-                    );
-                }
-
-                // Restore page
-                currentPage = state.page || 1;
-
-                // Clear the saved state after restoring
-                // sessionStorage.removeItem('blogSearchState');
-
-                // Update display
-                displayPosts();
-            }
-        } catch (e) {
-            console.error('Error restoring search state:', e);
-        }
-    }
-}
-
-// Add click handlers to all "Read More" links to save state
-document.addEventListener('click', function(e) {
-    if (e.target.closest('.btn-outline-primary') || e.target.closest('a[href*="post.html"]')) {
-        saveSearchState();
-    }
-});
-
 // Helper functions
 function showLoading(show) {
     loadingSpinner.style.display = show ? 'block' : 'none';
-    if (show) {
-        postsContainer.style.display = 'none';
-        paginationContainer.style.display = 'none';
-        noResults.style.display = 'none';
-        errorMessage.style.display = 'none';
-    }
 }
 
 function showError(message) {

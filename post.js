@@ -49,6 +49,18 @@ async function fetchPostDetails() {
 function displayPost(post) {
     postContainer.style.display = 'block';
 
+    // Get saved state to pass back
+    const savedState = sessionStorage.getItem('blogSearchState');
+    let backUrl = 'index.html';
+
+    if (savedState) {
+        try {
+            const state = JSON.parse(savedState);
+            // We'll use session storage for restoration, so just link to index
+            backUrl = 'index.html';
+        } catch (e) {}
+    }
+
     postContainer.innerHTML = `
         <div class="card-body">
             <h2 class="card-title mb-3">${post.title}</h2>
@@ -79,10 +91,11 @@ function displayPost(post) {
                 <p>${post.body}</p>
             </div>
         </div>
-        <div class="card-footer bg-white">
-            <a href="index.html" class="btn btn-primary">
+        <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+            <a href="${backUrl}" class="btn btn-primary" id="backToPostsBtn">
                 <i class="fas fa-arrow-left me-2"></i>Back to Posts
             </a>
+            ${savedState ? '<small class="text-muted">Returning to your search results</small>' : ''}
         </div>
     `;
 }
@@ -115,6 +128,13 @@ function displayComments(comments) {
 
     commentsContainer.innerHTML = commentsHTML;
 }
+
+// Optional: Clear state when explicitly going to home
+document.addEventListener('click', function(e) {
+    if (e.target.closest('.navbar-brand')) {
+        sessionStorage.removeItem('blogSearchState');
+    }
+});
 
 // Helper functions
 function showLoading(show) {

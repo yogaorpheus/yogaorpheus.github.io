@@ -1,6 +1,6 @@
 // script.js - Main functionality with DummyJSON API
 
-const POSTS_PER_PAGE = 2;
+const POSTS_PER_PAGE = 3;
 let currentPage = 1;
 let allPosts = [];
 let filteredPosts = [];
@@ -8,7 +8,7 @@ let totalPosts = 0;
 
 // DOM Elements
 const postsContainer = document.getElementById('postsContainer');
-const paginationEl = document.getElementById('pagination');
+const paginationElement = document.getElementById('pagination');
 const paginationContainer = document.getElementById('paginationContainer');
 const searchInput = document.getElementById('searchInput');
 const clearSearch = document.getElementById('clearSearch');
@@ -19,7 +19,9 @@ const errorText = document.getElementById('errorText');
 
 // Initialize the page
 document.addEventListener('DOMContentLoaded', function() {
-    fetchAllPosts();
+    fetchAllPosts().then(() => {
+        restoreSearchState(); // Restore state after posts are loaded
+    });
     setupSearch();
 });
 
@@ -33,12 +35,12 @@ async function fetchAllPosts() {
         const initialData = await initialResponse.json();
         totalPosts = initialData.total;
 
-        // Fetch all posts (API returns max 30 per request, but we'll get first 30)
+        // Fetch all posts (API /posts returns max 30 per request, so we'll modify the limit to total posts instead)
         // For more posts, you'd need to implement pagination through API
-        const response = await fetch('https://dummyjson.com/posts?limit=30');
-        const data = await response.json();
+        const response = await fetch('https://dummyjson.com/posts?limit='+totalPosts);
+        const postsData = await response.json();
 
-        allPosts = data.posts;
+        allPosts = postsData.posts;
         filteredPosts = [...allPosts];
 
         displayPosts();
@@ -176,7 +178,7 @@ function displayPosts() {
 // Generate pagination controls
 function generatePagination(totalPages) {
     if (totalPages <= 1) {
-        paginationEl.innerHTML = '';
+        paginationElement.innerHTML = '';
         return;
     }
 
@@ -209,7 +211,7 @@ function generatePagination(totalPages) {
         </li>
     `;
 
-    paginationEl.innerHTML = paginationHTML;
+    paginationElement.innerHTML = paginationHTML;
 }
 
 // Change page function
@@ -218,6 +220,58 @@ window.changePage = function(page) {
     displayPosts();
     window.scrollTo({ top: 0, behavior: 'smooth' });
 };
+
+// Save search state before leaving the page
+function saveSearchState() {
+    const searchState = {
+        term: searchInput.value,
+        page: currentPage,
+        timestamp: new Date().getTime() // For cache busting if needed
+    };
+    sessionStorage.setItem('blogSearchState', JSON.stringify(searchState));
+}
+
+// Restore search state when returning to page
+function restoreSearchState() {
+    const savedState = sessionStorage.getItem('blogSearchState');
+    if (savedState) {
+        try {
+            const state = JSON.parse(savedState);
+
+            // Check if state is not too old (optional - 5 minutes)
+            const now = new Date().getTime();
+            if (now - state.timestamp < 300000) { // 5 minutes
+
+                // Restore search term
+                if (state.term) {
+                    searchInput.value = state.term;
+                    // Trigger search
+                    filteredPosts = allPosts.filter(post =>
+                        post.title.toLowerCase().includes(state.term.toLowerCase())
+                    );
+                }
+
+                // Restore page
+                currentPage = state.page || 1;
+
+                // Clear the saved state after restoring
+                // sessionStorage.removeItem('blogSearchState');
+
+                // Update display
+                displayPosts();
+            }
+        } catch (e) {
+            console.error('Error restoring search state:', e);
+        }
+    }
+}
+
+// Add click handlers to all "Read More" links to save state
+document.addEventListener('click', function(e) {
+    if (e.target.closest('.btn-outline-primary') || e.target.closest('a[href*="post.html"]')) {
+        saveSearchState();
+    }
+});
 
 // Helper functions
 function showLoading(show) {
